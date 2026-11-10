@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace DriftClock
 {
@@ -42,7 +43,22 @@ namespace DriftClock
                     form.Show();
                 }
                 if (primary == null) return;
-                Application.Run(primary);
+
+                // Monitors added/removed/resized while running (dock, hot-plug, cable drop): the forms would sit on
+                // stale bounds and a monitor could show the static desktop, so just close. Windows restarts the saver
+                // on the next idle period.
+                var initial = Screen.AllScreens.Select(sc => sc.Bounds).ToList();
+                EventHandler onDisplayChange = (s, e) =>
+                {
+                    if (ScreenLayout.Differs(initial, Screen.AllScreens.Select(sc => sc.Bounds)))
+                    {
+                        try { primary.BeginInvoke(new Action(Application.Exit)); }
+                        catch { Environment.Exit(0); }
+                    }
+                };
+                SystemEvents.DisplaySettingsChanged += onDisplayChange;
+                try { Application.Run(primary); }
+                finally { SystemEvents.DisplaySettingsChanged -= onDisplayChange; }
             }
         }
 
