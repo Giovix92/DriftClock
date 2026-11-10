@@ -44,10 +44,36 @@ namespace DriftClock
         private DateTime _batteryRead = DateTime.MinValue;
         private System.Threading.Timer _weatherTimer, _calendarTimer;
 
-        public DataService(Settings s)
-            : this(s, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DriftClock"),
-                   Weather.Fetch, Weather.HttpGet, () => DateTime.Now)
+        public static string DefaultCacheDir
         {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DriftClock");
+            }
+        }
+
+        public DataService(Settings s)
+            : this(s, DefaultCacheDir, Weather.Fetch, Weather.HttpGet, () => DateTime.Now)
+        {
+        }
+
+        /// <summary>Identifies which calendar link a cached copy belongs to, without storing the secret link itself.</summary>
+        public static string CacheKey(string url)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(ICal.NormalizeUrl(url) ?? ""));
+                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            }
+        }
+
+        /// <summary>Removes the cached private calendar (and the key naming its link). Safe if nothing is cached.</summary>
+        public static void DeleteCalendarCache(string dir)
+        {
+            foreach (string name in new[] { "calendar.ics", "calendar.key" })
+            {
+                try { File.Delete(Path.Combine(dir, name)); } catch { }
+            }
         }
 
         public DataService(Settings s, string cacheDir, Func<double, double, bool, WeatherInfo> fetchWeather,
@@ -111,7 +137,7 @@ namespace DriftClock
         {
             try
             {
-                if (!_s.ShowEvents || string.IsNullOrWhiteSpace(_s.ICalUrl)) return;
+                if (!_s.ShowEvents || !ICal.IsSecureUrl(_s.ICalUrl)) return;
                 string text = _fetchText(ICal.NormalizeUrl(_s.ICalUrl));
                 if (string.IsNullOrEmpty(text)) return;
                 List<CalEvent> events = ICal.Parse(text, TimeZoneInfo.Local);
@@ -123,6 +149,7 @@ namespace DriftClock
                     string path = Path.Combine(_dir, "calendar.ics");
                     File.WriteAllText(path, text, new UTF8Encoding(false));
                     File.SetLastWriteTime(path, now);
+                    File.WriteAllText(Path.Combine(_dir, "calendar.key"), CacheKey(_s.ICalUrl), new UTF8Encoding(false));
                 }
                 catch { }
             }
@@ -251,6 +278,16 @@ namespace DriftClock
             {
                 string path = Path.Combine(_dir, "calendar.ics");
                 if (!File.Exists(path)) return;
+
+                // The cache holds private events: keep it only while it belongs to the link currently configured.
+                string keyPath = Path.Combine(_dir, "calendar.key");
+                bool belongsToCurrentLink = _s.ShowEvents && ICal.IsSecureUrl(_s.ICalUrl) && File.Exists(keyPath)
+                    && File.ReadAllText(keyPath).Trim() == CacheKey(_s.ICalUrl);
+                if (!belongsToCurrentLink)
+                {
+                    DeleteCalendarCache(_dir);
+                    return;
+                }
                 _calendar = ICal.Parse(File.ReadAllText(path), TimeZoneInfo.Local);
                 _calendarFetched = File.GetLastWriteTime(path);
             }

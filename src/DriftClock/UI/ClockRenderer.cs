@@ -204,7 +204,9 @@ namespace DriftClock
             using (var todayBg = new SolidBrush(Gray(HighlightGray, f)))
             using (var todayFg = new SolidBrush(Gray(ClockGray, f)))
             {
-                g.DrawString(now.ToString("MMMM yyyy", culture).ToUpper(culture), font, br, x0, y0, _fmt);
+                // Centered over the columns (the weekday initials and day numbers are centered in their cells too).
+                g.DrawString(now.ToString("MMMM yyyy", culture).ToUpper(culture), font, br,
+                             new RectangleF(x0, y0, gridW, lineH), _center);
                 for (int i = 0; i < 7; i++)
                 {
                     var dow = (DayOfWeek)(((int)firstDow + i) % 7);

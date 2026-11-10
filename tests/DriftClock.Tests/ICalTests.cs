@@ -91,6 +91,22 @@ namespace DriftClock.Tests
             Assert.Empty(ICal.Parse(Wrap("DTSTART:20261110T090000\r\nSTATUS:CANCELLED\r\nSUMMARY:X\r\n"), Rome));
         }
 
+        [Theory]
+        [InlineData("https://x/y.ics", true)]
+        [InlineData("HTTPS://x/y.ics", true)]
+        [InlineData("webcal://x/y.ics", true)]
+        [InlineData("  webcal://x/y.ics ", true)]
+        [InlineData("http://x/y.ics", false)]
+        [InlineData("ftp://x/y.ics", false)]
+        [InlineData("x/y.ics", false)]
+        [InlineData("https://", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void Only_https_and_webcal_links_are_secure(string url, bool secure)
+        {
+            Assert.Equal(secure, ICal.IsSecureUrl(url));
+        }
+
         [Fact]
         public void Webcal_url_is_rewritten_to_https()
         {

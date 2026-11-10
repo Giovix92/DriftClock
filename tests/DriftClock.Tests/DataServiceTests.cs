@@ -135,12 +135,86 @@ namespace DriftClock.Tests
             string path = Path.Combine(_dir, "calendar.ics");
             File.WriteAllText(path, "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20261110T200000\r\nSUMMARY:Dinner\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
             var s = new Settings { ShowEvents = true, ICalUrl = "https://x/y.ics" };
+            File.WriteAllText(Path.Combine(_dir, "calendar.key"), DataService.CacheKey(s.ICalUrl));
 
             File.SetLastWriteTime(path, _now.AddHours(-25));
             Assert.Null(Make(s).Compose(_now).Events);
 
             File.SetLastWriteTime(path, _now.AddHours(-1));
             Assert.Single(Make(s).Compose(_now).Events);
+        }
+
+        private const string OneEventIcs =
+            "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20261110T200000\r\nSUMMARY:Dinner\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+        private string SeedCache(string url)
+        {
+            Directory.CreateDirectory(_dir);
+            string ics = Path.Combine(_dir, "calendar.ics");
+            File.WriteAllText(ics, OneEventIcs);
+            File.WriteAllText(Path.Combine(_dir, "calendar.key"), DataService.CacheKey(url));
+            File.SetLastWriteTime(ics, _now.AddMinutes(-5));
+            return ics;
+        }
+
+        [Fact]
+        public void Http_calendar_url_is_never_fetched()
+        {
+            int calls = 0;
+            var s = new Settings { ShowEvents = true, ICalUrl = "http://x/y.ics" };
+            var svc = Make(s, null, u => { calls++; return OneEventIcs; });
+            svc.RefreshCalendar();
+            Assert.Equal(0, calls);
+            Assert.Null(svc.Compose(_now).Events);
+        }
+
+        [Fact]
+        public void Fetched_calendar_survives_a_restart_for_the_same_url()
+        {
+            var s = new Settings { ShowEvents = true, ICalUrl = "https://x/y.ics" };
+            Make(s, null, u => OneEventIcs).RefreshCalendar();
+            Assert.Single(Make(s).Compose(_now).Events); // offline restart uses the cache
+        }
+
+        [Fact]
+        public void Cache_for_a_different_url_is_deleted_and_not_shown()
+        {
+            string ics = SeedCache("https://old/secret.ics");
+            var s = new Settings { ShowEvents = true, ICalUrl = "https://new/other.ics" };
+            Assert.Null(Make(s).Compose(_now).Events);
+            Assert.False(File.Exists(ics));
+            Assert.False(File.Exists(Path.Combine(_dir, "calendar.key")));
+        }
+
+        [Theory]
+        [InlineData(false, "https://x/y.ics")]
+        [InlineData(true, null)]
+        [InlineData(true, "  ")]
+        public void Cache_is_deleted_when_events_are_off_or_the_link_is_removed(bool showEvents, string url)
+        {
+            string ics = SeedCache("https://x/y.ics");
+            var s = new Settings { ShowEvents = showEvents, ICalUrl = url };
+            Make(s);
+            Assert.False(File.Exists(ics));
+        }
+
+        [Fact]
+        public void Cache_key_does_not_contain_the_url()
+        {
+            string key = DataService.CacheKey("https://calendar.example/private/secret-token.ics");
+            Assert.DoesNotContain("secret", key);
+            Assert.Equal(key, DataService.CacheKey(" webcal://calendar.example/private/secret-token.ics "));
+            Assert.NotEqual(key, DataService.CacheKey("https://calendar.example/private/other.ics"));
+        }
+
+        [Fact]
+        public void DeleteCalendarCache_removes_both_files()
+        {
+            string ics = SeedCache("https://x/y.ics");
+            DataService.DeleteCalendarCache(_dir);
+            Assert.False(File.Exists(ics));
+            Assert.False(File.Exists(Path.Combine(_dir, "calendar.key")));
+            DataService.DeleteCalendarCache(_dir); // already gone: no throw
         }
 
         [Fact]

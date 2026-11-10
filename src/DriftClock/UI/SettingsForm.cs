@@ -162,15 +162,19 @@ namespace DriftClock
         private void Save()
         {
             string url = _ical.Text.Trim();
-            if (_events.Checked && url.Length > 0 &&
-                !(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-                  url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                  url.StartsWith("webcal://", StringComparison.OrdinalIgnoreCase)))
+            if (_events.Checked && url.Length > 0 && !ICal.IsSecureUrl(url))
             {
-                MessageBox.Show(this, "The calendar link should start with https:// or webcal://", "DriftClock",
-                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this,
+                    "The calendar link must start with https:// or webcal://.\n" +
+                    "Plain http:// links are not accepted because the link is a secret and would be sent unencrypted.",
+                    "DriftClock", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+
+            // The cached calendar holds private events: drop it now if the link changed or events were turned off.
+            string newUrl = url.Length == 0 ? null : url;
+            bool linkChanged = ICal.NormalizeUrl(_settings.ICalUrl) != ICal.NormalizeUrl(newUrl);
+            if (linkChanged || !_events.Checked) DataService.DeleteCalendarCache(DataService.DefaultCacheDir);
 
             _settings.LocationName = _locName;
             _settings.Latitude = _lat;

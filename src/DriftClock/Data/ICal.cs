@@ -40,6 +40,17 @@ namespace DriftClock
             return url;
         }
 
+        /// <summary>The private calendar link is a secret, so only encrypted transport (https / webcal) is accepted.</summary>
+        public static bool IsSecureUrl(string url)
+        {
+            string normalized = NormalizeUrl(url);
+            Uri uri;
+            return !string.IsNullOrEmpty(normalized)
+                   && Uri.TryCreate(normalized, UriKind.Absolute, out uri)
+                   && uri.Scheme == Uri.UriSchemeHttps
+                   && !string.IsNullOrEmpty(uri.Host);
+        }
+
         public static List<CalEvent> Parse(string ics, TimeZoneInfo local)
         {
             var result = new List<CalEvent>();
