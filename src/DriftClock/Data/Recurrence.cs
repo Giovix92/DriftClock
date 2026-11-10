@@ -154,7 +154,6 @@ namespace DriftClock
                             }
                         }
                     }
-                    break;
 
                 case "MONTHLY":
                     for (int k = 0; ; k++)
