@@ -25,9 +25,16 @@ namespace DriftClock
             Rule rule = ParseRule(master.RRule);
             if (rule == null) return result;
 
+            // Series with a real time zone recur on that zone's wall clock (or UTC), then convert to local,
+            // so DST differences between the series' zone and this PC do not shift occurrences.
+            TimeZoneInfo local = master.LocalZone ?? TimeZoneInfo.Local;
+            bool inSourceZone = master.SourceZone != null && !master.AllDay;
+            DateTime seed = inSourceZone ? master.StartSource : master.StartLocal;
+
             int produced = 0, iterations = 0;
-            foreach (DateTime start in Candidates(master.StartLocal, rule))
+            foreach (DateTime candidate in Candidates(seed, rule))
             {
+                DateTime start = inSourceZone ? ToLocal(candidate, master.SourceZone, local) : candidate;
                 if (++iterations > MaxIterations) break;
                 if (start >= windowEnd) break;
                 if (rule.Until.HasValue && start > rule.Until.Value) break;
@@ -45,6 +52,18 @@ namespace DriftClock
                 });
             }
             return result;
+        }
+
+        /// <summary>Wall-clock time in <paramref name="from"/> to wall-clock time in <paramref name="to"/>; skipped (DST gap) times move forward an hour.</summary>
+        public static DateTime ToLocal(DateTime wall, TimeZoneInfo from, TimeZoneInfo to)
+        {
+            wall = DateTime.SpecifyKind(wall, DateTimeKind.Unspecified);
+            try
+            {
+                if (from.IsInvalidTime(wall)) wall = wall.AddHours(1);
+                return TimeZoneInfo.ConvertTime(wall, from, to);
+            }
+            catch { return wall; }
         }
 
         private static bool Overlaps(DateTime start, DateTime end, DateTime winStart, DateTime winEnd)

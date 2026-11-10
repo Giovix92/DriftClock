@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace DriftClock
@@ -13,6 +14,16 @@ namespace DriftClock
         public bool AllDay;
         public string RRule;
         public List<DateTime> ExDatesLocal = new List<DateTime>();
+
+        // Series time zone, so recurrences keep the right wall-clock/UTC time across DST changes.
+        public TimeZoneInfo SourceZone;     // null = floating or all-day (expand in local time)
+        public DateTime StartSource;        // DTSTART as wall-clock time in SourceZone
+        public TimeZoneInfo LocalZone;      // the zone StartLocal etc. are expressed in
+
+        // Moved / cancelled single instances of a series.
+        public string Uid;
+        public DateTime? RecurrenceIdLocal;
+        public bool Cancelled;
     }
 
     public static class ICal
@@ -35,26 +46,46 @@ namespace DriftClock
             if (string.IsNullOrEmpty(ics)) return result;
             if (local == null) local = TimeZoneInfo.Local;
 
-            List<string> lines = Unfold(ics);
             List<string> block = null;
-            foreach (string line in lines)
+            int nested = 0; // depth inside VALARM and other sub-components of a VEVENT
+            foreach (string line in Unfold(ics))
             {
-                if (line.Equals("BEGIN:VEVENT", StringComparison.OrdinalIgnoreCase)) block = new List<string>();
-                else if (line.Equals("END:VEVENT", StringComparison.OrdinalIgnoreCase))
+                if (block == null)
                 {
-                    if (block != null)
-                    {
-                        try
-                        {
-                            CalEvent e = ParseEvent(block, local);
-                            if (e != null) result.Add(e);
-                        }
-                        catch { /* skip malformed event */ }
-                    }
-                    block = null;
+                    if (line.Equals("BEGIN:VEVENT", StringComparison.OrdinalIgnoreCase)) { block = new List<string>(); nested = 0; }
+                    continue;
                 }
-                else if (block != null) block.Add(line);
+                if (line.StartsWith("BEGIN:", StringComparison.OrdinalIgnoreCase)) { nested++; continue; }
+                if (line.StartsWith("END:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (nested > 0) { nested--; continue; }
+                    try
+                    {
+                        CalEvent e = ParseEvent(block, local);
+                        if (e != null) result.Add(e);
+                    }
+                    catch { /* skip malformed event */ }
+                    block = null;
+                    continue;
+                }
+                if (nested == 0) block.Add(line);
             }
+
+            // A moved or cancelled instance replaces that occurrence of its series.
+            var series = new Dictionary<string, List<CalEvent>>();
+            foreach (CalEvent e in result.Where(x => x.RRule != null && x.Uid != null))
+            {
+                List<CalEvent> list;
+                if (!series.TryGetValue(e.Uid, out list)) series[e.Uid] = list = new List<CalEvent>();
+                list.Add(e);
+            }
+            foreach (CalEvent o in result.Where(x => x.RecurrenceIdLocal.HasValue && x.Uid != null))
+            {
+                List<CalEvent> masters;
+                if (series.TryGetValue(o.Uid, out masters))
+                    foreach (CalEvent m in masters) m.ExDatesLocal.Add(o.RecurrenceIdLocal.Value);
+            }
+            result.RemoveAll(e => e.Cancelled);
             return result;
         }
 
@@ -98,10 +129,18 @@ namespace DriftClock
             return p;
         }
 
+        private sealed class Parsed
+        {
+            public DateTime Local;
+            public DateTime Source;
+            public TimeZoneInfo Zone; // null = floating or all-day
+            public bool AllDay;
+        }
+
         private static CalEvent ParseEvent(List<string> block, TimeZoneInfo local)
         {
-            var e = new CalEvent();
-            Prop start = null, end = null;
+            var e = new CalEvent { LocalZone = local };
+            Prop start = null, end = null, recurrenceId = null;
             foreach (string line in block)
             {
                 Prop p = SplitLine(line);
@@ -109,66 +148,68 @@ namespace DriftClock
                 switch (p.Name)
                 {
                     case "SUMMARY": e.Summary = Unescape(p.Value); break;
+                    case "UID": e.Uid = p.Value.Trim(); break;
                     case "DTSTART": start = p; break;
                     case "DTEND": end = p; break;
+                    case "RECURRENCE-ID": recurrenceId = p; break;
                     case "RRULE": e.RRule = p.Value.Trim(); break;
                     case "STATUS":
-                        if (p.Value.Trim().Equals("CANCELLED", StringComparison.OrdinalIgnoreCase)) return null;
+                        if (p.Value.Trim().Equals("CANCELLED", StringComparison.OrdinalIgnoreCase)) e.Cancelled = true;
                         break;
                     case "EXDATE":
                         foreach (string part in p.Value.Split(','))
                         {
-                            bool d;
-                            DateTime? x = ParseTime(part.Trim(), p.Params, local, out d);
-                            if (x.HasValue) e.ExDatesLocal.Add(x.Value);
+                            Parsed x = ParseTime(part.Trim(), p.Params, local);
+                            if (x != null) e.ExDatesLocal.Add(x.Local);
                         }
                         break;
                 }
             }
             if (start == null) return null;
 
-            bool allDay;
-            DateTime? s = ParseTime(start.Value.Trim(), start.Params, local, out allDay);
-            if (!s.HasValue) return null;
-            e.StartLocal = s.Value;
-            e.AllDay = allDay;
+            Parsed s = ParseTime(start.Value.Trim(), start.Params, local);
+            if (s == null) return null;
+            e.StartLocal = s.Local;
+            e.AllDay = s.AllDay;
+            e.SourceZone = s.Zone;
+            e.StartSource = s.Source;
 
-            DateTime? en = null;
-            if (end != null)
+            Parsed en = end == null ? null : ParseTime(end.Value.Trim(), end.Params, local);
+            e.EndLocal = en != null ? en.Local : (s.AllDay ? e.StartLocal.AddDays(1) : e.StartLocal);
+
+            if (recurrenceId != null)
             {
-                bool ignored;
-                en = ParseTime(end.Value.Trim(), end.Params, local, out ignored);
+                Parsed r = ParseTime(recurrenceId.Value.Trim(), recurrenceId.Params, local);
+                if (r != null) e.RecurrenceIdLocal = r.Local;
             }
-            e.EndLocal = en ?? (allDay ? e.StartLocal.AddDays(1) : e.StartLocal);
             if (e.Summary == null) e.Summary = "";
             return e;
         }
 
-        private static DateTime? ParseTime(string value, Dictionary<string, string> prm, TimeZoneInfo local, out bool allDay)
+        private static Parsed ParseTime(string value, Dictionary<string, string> prm, TimeZoneInfo local)
         {
             string valueType;
-            allDay = (prm.TryGetValue("VALUE", out valueType) && valueType.Equals("DATE", StringComparison.OrdinalIgnoreCase))
-                     || value.Length == 8;
+            bool allDay = (prm.TryGetValue("VALUE", out valueType) && valueType.Equals("DATE", StringComparison.OrdinalIgnoreCase))
+                          || value.Length == 8;
             bool utc = value.EndsWith("Z", StringComparison.OrdinalIgnoreCase);
             if (utc) value = value.Substring(0, value.Length - 1);
 
             DateTime dt;
             if (!DateTime.TryParseExact(value, DateTimeFormats, Inv, DateTimeStyles.None, out dt)) return null;
-            if (allDay) return dt.Date;
+            dt = DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
+            if (allDay) return new Parsed { Local = dt.Date, Source = dt.Date, AllDay = true };
 
-            if (utc) return TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(dt, DateTimeKind.Unspecified), local);
+            if (utc)
+                return new Parsed { Local = TimeZoneInfo.ConvertTimeFromUtc(dt, local), Source = dt, Zone = TimeZoneInfo.Utc };
 
             string tzid;
             if (prm.TryGetValue("TZID", out tzid))
             {
                 TimeZoneInfo zone = IanaZones.Find(tzid);
                 if (zone != null)
-                {
-                    try { return TimeZoneInfo.ConvertTime(DateTime.SpecifyKind(dt, DateTimeKind.Unspecified), zone, local); }
-                    catch { return dt; }
-                }
+                    return new Parsed { Local = Recurrence.ToLocal(dt, zone, local), Source = dt, Zone = zone };
             }
-            return dt; // floating
+            return new Parsed { Local = dt, Source = dt }; // floating
         }
 
         private static string Unescape(string s)
