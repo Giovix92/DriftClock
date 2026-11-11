@@ -19,19 +19,9 @@
 
 Black screen, big thin digits, a date, and a few small dim extras tucked in the corners. The whole picture slowly **drifts**, so no pixel stays lit in the same spot.
 
-```
-┌──────────────────────────────────────────────┐
-│  Sunny 18°  12°/19°  Rome      82% charging  │
-│                                              │
-│                                              │
-│                    21:47                     │
-│             Tuesday, 10 November             │
-│                                              │
-│                                              │
-│  Dentist 09:30                     Nov 2026  │
-│  Dinner 20:00                                │
-└──────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/screenshots/driftclock.png" alt="DriftClock showing the time, date and weather on a black screen" width="720">
+</p>
 
 ## ✨ Features
 
