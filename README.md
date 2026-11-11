@@ -8,7 +8,7 @@
 <p align="center">
   <a href="../../releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Giovix92/DriftClock?style=for-the-badge&color=7aa2ff"></a>
   <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Giovix92/DriftClock/total?style=for-the-badge&color=57c7a5"></a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
   <img alt=".NET Framework 4.8" src="https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?style=for-the-badge&logo=dotnet&logoColor=white">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Giovix92/DriftClock?style=for-the-badge&color=f5a97f"></a>
 </p>
@@ -21,15 +21,15 @@ Black screen, big thin digits, a date, and a few small dim extras tucked in the 
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ☀ 18°  12° / 19°  Rome            🔋 82% ⚡  │
+│  Sunny 18°  12°/19°  Rome      82% charging  │
 │                                              │
 │                                              │
-│                   21:47                      │
-│            Tuesday, 10 November              │
+│                    21:47                     │
+│             Tuesday, 10 November             │
 │                                              │
 │                                              │
-│  Dentist · 09:30                  ▦ Nov 2026 │
-│  Dinner · 20:00                              │
+│  Dentist 09:30                     Nov 2026  │
+│  Dinner 20:00                                │
 └──────────────────────────────────────────────┘
 ```
 
